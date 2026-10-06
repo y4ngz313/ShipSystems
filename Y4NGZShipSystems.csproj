@@ -1,0 +1,239 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="../Shared/MoonCatalogueDetailRow.cs" Link="Compat/MoonCatalogueDetailRow.cs" />
+    <Compile Include="../Shared/MoonCatalogueColumns.cs" Link="Compat/MoonCatalogueColumns.cs" />
+  </ItemGroup>
+
+  <!-- Shared settings (TargetFramework, LangVersion, GameManagedDir, TestProfileRoot,
+       BepInEx paths, CompanyRepoRoot, restore sources) live in ..\Directory.Build.props. -->
+  <PropertyGroup>
+    <AssemblyName>Y4NGZShipSystems</AssemblyName>
+    <!-- Deliberately NOT Y4NGZShipSystems: the namespaces this assembly vends are frozen
+         (Y4NGZCompany.ShipSystems.*, Y4NGZCompany.Bootstrap.*, Y4NGZCompany.Core.*) because
+         external mods resolve them by string. RootNamespace only affects new files' default
+         namespace, and every file here declares its own, but leaving it at Y4NGZCompany keeps
+         the two in step. -->
+    <RootNamespace>Y4NGZCompany</RootNamespace>
+    <Description>ShipSystems: fuel-priced travel, collectible fuel, fuel monitor and chute, battery sabotage and apparatus recovery</Description>
+    <Title>ShipSystems</Title>
+    <Product>ShipSystems</Product>
+    <Version>1.0.1</Version>
+    <!-- Same symbol Y4NGZCompany defines. The moved sources contain #if blocks that gate the
+         Dawn/LethalContent catalogue integration on it, so omitting it here would silently
+         compile a different Ship Systems than the monolith shipped. -->
+    <DefineConstants>$(DefineConstants);Y4NGZCOMPANY_CUSTOMPASS_PUBLIC</DefineConstants>
+    <!-- No NoWarn here on purpose. Y4NGZCompany.csproj suppresses CS0436 for its own
+         historical reasons; this project must not inherit that habit, because a
+         type-conflict warning is exactly the signal that would catch a second accidental
+         duplicate of a Y4NGZCompany.* type across the two assemblies. See the
+         BepInEx.PluginInfoProps note in the package list below. -->
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Same two-layout hazard the sibling projects document: a Gale-imported profile holds
+         `Y4NGZShipSystems`, a hand-made one holds `y4ngz-Y4NGZShipSystems`. Prefer whichever
+         already exists, newest layout first, so a Release build never writes into the
+         directory BepInEx is not loading from. -->
+    <DeployTarget Condition="'$(DeployTarget)' == '' and Exists('$(BepInExPlugins)\Y4NGZShipSystems')">$(BepInExPlugins)\Y4NGZShipSystems</DeployTarget>
+    <DeployTarget Condition="'$(DeployTarget)' == ''">$(BepInExPlugins)\y4ngz-Y4NGZShipSystems</DeployTarget>
+    <InteractiveTerminalApiReferencePath Condition="'$(InteractiveTerminalApiReferencePath)' == '' and Exists('$(BepInExPlugins)\WhiteSpike-Interactive_Terminal_API\InteractiveTerminalAPI\InteractiveTerminalAPI.dll')">$(BepInExPlugins)\WhiteSpike-Interactive_Terminal_API\InteractiveTerminalAPI\InteractiveTerminalAPI.dll</InteractiveTerminalApiReferencePath>
+    <InteractiveTerminalApiReferencePath Condition="'$(InteractiveTerminalApiReferencePath)' == '' and Exists('..\..\libs\InteractiveTerminalAPI.dll')">..\..\libs\InteractiveTerminalAPI.dll</InteractiveTerminalApiReferencePath>
+    <DawnLibReferencePath Condition="'$(DawnLibReferencePath)' == '' and Exists('$(BepInExPlugins)\TeamXiaolan-DawnLib\DawnLib\com.github.teamxiaolan.dawnlib.dll')">$(BepInExPlugins)\TeamXiaolan-DawnLib\DawnLib\com.github.teamxiaolan.dawnlib.dll</DawnLibReferencePath>
+    <!-- The fuel payloads deploy as .bundle (NOT .lethalbundle) so LethalLevelLoader does not
+         auto-load them out from under our own AssetBundle.LoadFromFile calls. Same resolution
+         order Y4NGZCompany used while it owned them: the gitignored runtime-assets copy first,
+         the authoring machine's Unity output second. -->
+    <FuelChuteBundleSourcePath Condition="Exists('..\..\runtime-assets\y4ngz-fuel-chute.bundle')">..\..\runtime-assets\y4ngz-fuel-chute.bundle</FuelChuteBundleSourcePath>
+    <FuelChuteBundleSourcePath Condition="'$(FuelChuteBundleSourcePath)' == ''">C:\Unity\Projects\LethalModAssets_v2\AssetBundles\StandaloneWindows\y4ngz-fuel-chute.bundle</FuelChuteBundleSourcePath>
+    <OilRefineryBundleSourcePath Condition="Exists('..\..\runtime-assets\y4ngz-oil-refinery.bundle')">..\..\runtime-assets\y4ngz-oil-refinery.bundle</OilRefineryBundleSourcePath>
+    <OilRefineryBundleSourcePath Condition="'$(OilRefineryBundleSourcePath)' == ''">C:\Unity\Projects\LethalModAssets_v2\AssetBundles\StandaloneWindows\y4ngz-oil-refinery.bundle</OilRefineryBundleSourcePath>
+    <FuelItemsBundleSourcePath Condition="Exists('..\..\runtime-assets\y4ngz-fuel-items.bundle')">..\..\runtime-assets\y4ngz-fuel-items.bundle</FuelItemsBundleSourcePath>
+    <FuelItemsBundleSourcePath Condition="'$(FuelItemsBundleSourcePath)' == ''">C:\Unity\Projects\LethalModAssets_v2\AssetBundles\StandaloneWindows\y4ngz-fuel-items.bundle</FuelItemsBundleSourcePath>
+    <NetcodePatchDependencyFile>$(MSBuildProjectDirectory)\obj\$(Configuration)\netcode-patch-dependencies.txt</NetcodePatchDependencyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.2" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" PrivateAssets="all" />
+    <!-- BepInEx.PluginInfoProps is deliberately ABSENT (#613 task 2.1, V7).
+         It generates `public static class MyPluginInfo` into $(RootNamespace), and this
+         project's RootNamespace is Y4NGZCompany - the namespace it shares with
+         Y4NGZCompany.dll, which also references the package. Two assemblies would then each
+         export a public `Y4NGZCompany.MyPluginInfo`, and any consumer referencing both gets
+         CS0433 with no way to disambiguate. The package exposes no knob for this: its
+         .props hard-codes `public` and emits into $(RootNamespace) verbatim.
+         Verified with a repository-wide grep that nothing here reads MyPluginInfo - the
+         plugin's GUID/name/version are the const fields on ShipSystemsPlugin, which is
+         where the [BepInPlugin] attribute reads them from. Removing the generator is
+         therefore strictly better than suppressing the warning it causes: it deletes the
+         hazard instead of hiding it, and it keeps CS0436/CS0433 meaningful here. -->
+    <PackageReference Include="HarmonyX" Version="2.10.2" PrivateAssets="all" />
+    <PackageReference Include="LethalCompany.GameLibs.Steam" Version="81.0.5-ngd.0" Publicize="true" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="2022.3.62" IncludeAssets="compile" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="DunGen">
+      <HintPath>$(GameManagedDir)\DunGen.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.AI.Navigation">
+      <HintPath>$(GameManagedDir)\Unity.AI.Navigation.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(GameManagedDir)\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Netcode.Components">
+      <HintPath>$(GameManagedDir)\Unity.Netcode.Components.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Netcode.Runtime">
+      <HintPath>$(GameManagedDir)\Unity.Netcode.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GameManagedDir)\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.AIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameManagedDir)\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="InteractiveTerminalAPI" Condition="'$(InteractiveTerminalApiReferencePath)' != ''">
+      <HintPath>$(InteractiveTerminalApiReferencePath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="com.github.teamxiaolan.dawnlib" Condition="'$(DawnLibReferencePath)' != ''">
+      <HintPath>$(DawnLibReferencePath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Private=false: Y4NGZCore deploys its own DLL from its own project, so copying it into
+       this project's output would put a second copy in the profile.
+
+       Y4NGZCore is the ONLY project reference, and that is the architectural commitment of
+       #613 task 2.1: Ship Systems must load with Core and nothing else. A reference to
+       Y4NGZCompany here would make Contracted a hard dependency of this plugin and defeat the
+       split; the reverse direction (Y4NGZCompany -> Y4NGZShipSystems) is also absent, so the
+       two feature assemblies talk only through Y4NGZCore contracts. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Y4NGZCore\Y4NGZCore.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(FuelChuteBundleSourcePath)" Link="y4ngz-fuel-chute.bundle" CopyToOutputDirectory="Always" Condition="Exists('$(FuelChuteBundleSourcePath)')" />
+    <Content Include="$(OilRefineryBundleSourcePath)" Link="y4ngz-oil-refinery.bundle" CopyToOutputDirectory="Always" Condition="Exists('$(OilRefineryBundleSourcePath)')" />
+    <Content Include="$(FuelItemsBundleSourcePath)" Link="y4ngz-fuel-items.bundle" CopyToOutputDirectory="Always" Condition="Exists('$(FuelItemsBundleSourcePath)')" />
+    <Content Include="assets\audio\ship\*.wav" Link="Audio\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\audio\ship\*.ogg" Link="Audio\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\audio\ship\*.mp3" Link="Audio\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\fuel\*.obj" Link="Assets\Fuel\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\fuel\*-icon.png" Link="Assets\Fuel\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\fuel\*-albedo.png" Link="Assets\Fuel\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\battery\placements.json" Link="Assets\Battery\placements.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\battery\source\cylinder.obj" Link="Assets\Battery\source\cylinder.obj" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="assets\battery\textures\cylinder_*.png" Link="Assets\Battery\textures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ValidateY4NGZShipSystemsReferencePaths" BeforeTargets="ResolveReferences">
+    <Error Text="Missing InteractiveTerminalAPI reference. Install WhiteSpike-Interactive_Terminal_API 1.3.3 in TestProfileRoot, set InteractiveTerminalApiReferencePath, or place InteractiveTerminalAPI.dll in libs\ at the repo root." Condition="'$(InteractiveTerminalApiReferencePath)' == ''" />
+    <Error Text="Missing DawnLib reference. Install TeamXiaolan-DawnLib 0.9.25 in TestProfileRoot or set DawnLibReferencePath." Condition="'$(DawnLibReferencePath)' == ''" />
+  </Target>
+
+  <!-- Release only, exactly like the sibling projects: a Debug build must never write into the
+       live Gale profile, because Debug output is not netcode-patched and would leave a stale
+       undeployable DLL behind. `dotnet build -c Debug` therefore compiles and deploys nothing.
+
+       #613 task 2.2 settled what this target actually produces, verified by running the tool
+       below against a copy of the Debug output (NetcodePatcher 4.5.0, these exact arguments):
+
+         - Two types are woven, not four. FuelPumpItem and FuelSourceController are this
+           assembly's only NetworkBehaviours; both come out with __initializeVariables,
+           __initializeRpcs and one __rpc_handler per RPC. ShipSystemsController and
+           StorePurchaseNetwork are NOT woven and do not need to be - neither is a
+           NetworkBehaviour, and CustomMessagingManager named messages are not the patcher's
+           business.
+         - The assembly ends up with exactly ONE [RuntimeInitializeOnLoadMethod]:
+           __GEN.NetworkVariableSerializationHelper.InitializeSerialization, emitted only
+           because FuelPumpItem declares a NetworkVariable<float>. That single method is all
+           NetcodeRuntimeBootstrap.Initialize finds, and its requireInitializers guard THROWS on
+           zero - so deleting that field would kill this plugin at Awake while leaving the RPC
+           weave perfectly intact. Verify the generated initializer in the staged assembly.
+         - Runtime registration is per-assembly and is done in ShipSystemsPlugin.Awake, which
+           passes typeof(ShipSystemsPlugin).Assembly explicitly.
+         - No further InternalsVisibleTo was needed: task 2.1's Y4NGZShipSystems entry in
+           Y4NGZCore/AssemblyInfo.cs already reaches NetcodeRuntimeBootstrap and
+           Y4NGZCompanyPaths.
+         - Network-prefab registration ordering is independent of chainload order: every
+           registration here runs against NetworkManager.Singleton (or LethalLib, by reflection)
+           when the feature builds its prefabs, not at Initialize, and Contracted's set is
+           disjoint. See docs/ARCHITECTURE_DLL_SPLIT.md §5. -->
+  <Target Name="NetcodePatchAndDeployShipSystems" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <WriteLinesToFile File="$(NetcodePatchDependencyFile)" Lines="@(ReferencePathWithRefAssemblies->'%(Identity)')" Overwrite="true" />
+    <!-- #613 task 2.2 (V3): delete last build's weave marker FIRST, so the Error below tests
+         THIS build. bin\Release is incremental - without this, a build that wove successfully
+         leaves <assembly>_original.dll behind, and a later build that silently skips (exit 0,
+         e.g. DebugType went to none) satisfies Exists() with the stale artifact and ships an
+         unwoven DLL past the guard. The marker has to be evidence of the run being guarded, not
+         of any run. -->
+    <Delete Files="$(OutputPath)$(AssemblyName)_original.dll" />
+    <Exec Command="netcode-patch -uv 2022.3.9 -nv 1.12.0 -tv 1.0.0 &quot;$(TargetPath)&quot; --dependency-file &quot;$(NetcodePatchDependencyFile)&quot;" ConsoleToMSBuild="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="NetcodePatchOutput" />
+    </Exec>
+    <!-- The tool has TWO ways of not weaving, and only one of them is a fault.
+         "already been patched" happens on a repeat Release build: MSBuild skips the compile when
+         nothing changed, but this AfterTargets="Build" target still runs, so $(TargetPath) is the
+         DLL the PREVIOUS build already wove. That is correct and must not fail the build - but the
+         Delete above has just removed the marker, so Exists() alone would report it as a failure.
+         The dangerous case - "Couldn't find debug information ... forced to skip" - prints no such
+         line, so distinguishing them by the tool's own output is exact rather than heuristic.
+         Verified against NetcodePatcher 4.5.0 by running both paths against Debug DLL copies. -->
+    <PropertyGroup>
+      <NetcodePatchAlreadyWoven>$(NetcodePatchOutput.Contains('already been patched'))</NetcodePatchAlreadyWoven>
+    </PropertyGroup>
+    <!-- #613 task 2.2 (V2): netcode-patch EXITS 0 when it skips. Verified with the shipped
+         tool (NetcodePatcher 4.5.0): with no .pdb beside the assembly it logs
+         "Couldn't find debug information (X.dll), forced to skip" and returns success, so the
+         Exec above passes and an UNWOVEN assembly is deployed - every RPC in the package then
+         silently never arrives, and NetcodeRuntimeBootstrap.Initialize throws at Awake. The
+         tool writes <assembly>_original.dll next to the output only when it actually patched,
+         so its absence is the one reliable signal that the weave did not happen. Fail the
+         build here rather than discover it in a lobby. -->
+    <Error Condition="!Exists('$(OutputPath)$(AssemblyName)_original.dll') And '$(NetcodePatchAlreadyWoven)' != 'true'" Text="netcode-patch did not weave $(AssemblyName).dll - no $(AssemblyName)_original.dll was produced. The tool exits 0 when it skips (most often: no $(AssemblyName).pdb beside the assembly, e.g. DebugType set to none). Do not deploy this build." />
+    <CallTarget Targets="DeployY4NGZAssemblyWithStamp" />
+    <ItemGroup>
+      <ShipSystemsOutputAssets Include="$(OutputPath)y4ngz-fuel-chute.bundle;$(OutputPath)y4ngz-oil-refinery.bundle;$(OutputPath)y4ngz-fuel-items.bundle" />
+      <ShipSystemsOutputAudio Include="$(OutputPath)Audio\FuelMonitorCountdown.wav;$(OutputPath)Audio\FuelChuteReject.mp3;$(OutputPath)Audio\BatteryDock.mp3;$(OutputPath)Audio\BatteryHit.mp3;$(OutputPath)Audio\BatteryHitMonster.mp3;$(OutputPath)Audio\BrokenBatteryLoop.mp3;$(OutputPath)Audio\OilRigLoop.ogg;$(OutputPath)Audio\ShipPowerDown.mp3;$(OutputPath)Audio\WorkingBatteryLoop.mp3" />
+      <ShipSystemsNestedAssets Include="$(OutputPath)Assets\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ShipSystemsOutputAssets)" DestinationFolder="$(DeployTarget)" SkipUnchangedFiles="true" Condition="'@(ShipSystemsOutputAssets)' != ''" />
+    <MakeDir Directories="$(DeployTarget)\Audio" Condition="'@(ShipSystemsOutputAudio)' != ''" />
+    <Copy SourceFiles="@(ShipSystemsOutputAudio)" DestinationFolder="$(DeployTarget)\Audio" SkipUnchangedFiles="true" Condition="'@(ShipSystemsOutputAudio)' != ''" />
+    <Copy SourceFiles="@(ShipSystemsNestedAssets)" DestinationFiles="@(ShipSystemsNestedAssets->'$(DeployTarget)\Assets\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(ShipSystemsNestedAssets)' != ''" />
+  </Target>
+
+</Project>
